@@ -1,0 +1,58 @@
+# Maven build output and generated reports
+**/target/
+*.class
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+.flattened-pom.xml
+release.properties
+
+# Test and coverage output
+*.exec
+*.ser
+surefire-reports/
+failsafe-reports/
+
+# IDE metadata
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Logs and local runtime data
+*.log
+logs/
+*.pid
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor and temporary files
+*.swp
+*.swo
+*~
+*.tmp
+*.temp
+
+# Node.js tooling, if used by auxiliary scripts
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
