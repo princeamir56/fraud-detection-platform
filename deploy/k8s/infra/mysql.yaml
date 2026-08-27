@@ -1,0 +1,119 @@
+# DEV/DEMO ONLY single-node MySQL. Production: use a managed database or an
+# operator, and delete this file. Creates the six fraud_* schemas + shared app
+# user via the same init script the docker-compose stack uses (mounted from the
+# `mysql-init` ConfigMap that kustomize generates from deploy/docker/mysql/init).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/name: mysql
+    app.kubernetes.io/part-of: fraud-detection-platform
+type: Opaque
+stringData:
+  MYSQL_ROOT_PASSWORD: "root"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/name: mysql
+    app.kubernetes.io/part-of: fraud-detection-platform
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/name: mysql
+    app.kubernetes.io/part-of: fraud-detection-platform
+    app.kubernetes.io/component: database
+spec:
+  serviceName: mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mysql
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mysql
+        app.kubernetes.io/part-of: fraud-detection-platform
+        app.kubernetes.io/component: database
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: mysql
+          image: mysql:8.4
+          ports:
+            - name: mysql
+              containerPort: 3306
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_ROOT_PASSWORD
+            # App user/password sourced from the shared platform secret so the
+            # init script grants exactly what the services connect with.
+            - name: MYSQL_APP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: MYSQL_USER
+            - name: MYSQL_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: MYSQL_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          readinessProbe:
+            exec:
+              command: ["bash", "-c", "mysqladmin ping -h127.0.0.1 --silent"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            exec:
+              command: ["bash", "-c", "mysqladmin ping -h127.0.0.1 --silent"]
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 6
+      volumes:
+        - name: init
+          configMap:
+            name: mysql-init
+            defaultMode: 0755
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

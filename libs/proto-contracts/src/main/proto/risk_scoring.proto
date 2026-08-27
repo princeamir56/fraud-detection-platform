@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package frauddetect.risk.v1;
+
+option java_multiple_files = true;
+option java_package = "com.frauddetect.grpc.risk";
+option java_outer_classname = "RiskScoringProto";
+
+import "google/protobuf/timestamp.proto";
+
+// ============================================================================
+// RiskScoringService — low-latency, strongly-typed synchronous scoring.
+//
+// Called by fraud-detection-service on the hot path of every fraud check. gRPC +
+// Protobuf is chosen here (rather than Kafka) because the caller BLOCKS on the
+// result to make an immediate ALLOW/REVIEW/BLOCK decision: it needs a bounded,
+// low-latency request/response with a typed contract, not fire-and-forget events.
+// See docs/grpc.md for the full rationale.
+// ============================================================================
+
+// Behavioural + velocity features computed by fraud-detection-service (largely from
+// Cassandra) and passed to the scoring model. Kept flat and primitive for wire efficiency.
+message TransactionRiskFeatures {
+  double amount = 1;
+  string currency = 2;
+  string transaction_type = 3;             // PURCHASE|WITHDRAWAL|...
+  string country_code = 4;                 // ISO-3166 alpha-2
+  string merchant_category = 5;
+
+  int64  tx_count_last_hour = 6;
+  int64  tx_count_last_24h = 7;
+  double amount_sum_last_24h = 8;
+  double avg_amount_last_30d = 9;
+  int64  distinct_countries_last_24h = 10;
+
+  bool   new_device = 11;
+  bool   new_merchant = 12;
+  int64  failed_tx_last_hour = 13;
+
+  double km_from_last_tx = 14;             // geo distance from previous transaction
+  int64  seconds_since_last_tx = 15;       // dwell time since previous transaction
+}
+
+message RiskScoreRequest {
+  string correlation_id = 1;
+  string transaction_id = 2;
+  string customer_id = 3;
+  string account_id = 4;
+  TransactionRiskFeatures features = 5;
+}
+
+message RiskScoreResponse {
+  string transaction_id = 1;
+  double risk_score = 2;                   // normalised 0.0 - 1.0
+  string risk_band = 3;                    // LOW|MEDIUM|HIGH|CRITICAL
+  repeated string contributing_factors = 4;
+  int32  model_version = 5;
+  google.protobuf.Timestamp scored_at = 6;
+}
+
+service RiskScoringService {
+  // Unary hot-path call. Deadline is enforced by the client (see fraud-detection-service).
+  rpc CalculateRiskScore(RiskScoreRequest) returns (RiskScoreResponse);
+}

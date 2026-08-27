@@ -1,0 +1,371 @@
+# =============================================================================
+# Fraud Detection Platform — full local stack (Section 18).
+#
+#   docker compose up -d --build
+#
+# Compose auto-loads .env from this directory if present; otherwise the
+# ${VAR:-default} fallbacks below supply dev-only defaults, so the stack is
+# runnable straight from a clone. Copy .env.example to .env to customise.
+#
+# Brings up infra (MySQL 8.4, Cassandra 5.0, Kafka 4.0 KRaft + Schema Registry,
+# Elasticsearch 9 + Kibana, OpenTelemetry Collector + Jaeger, Kafka UI) and all
+# nine application services wired via the Spring `docker` profile (compose
+# hostnames). App services gate on infra health so first boot is deterministic.
+#
+# Image versions are pinned via .env (single source of truth) — re-verify with
+# scripts/check-versions.sh before a production build (see docs/technology-versions.md).
+# =============================================================================
+
+x-base-env: &base-env
+  SPRING_PROFILES_ACTIVE: docker
+  JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-secret-change-me-32bytes-minimum}
+  JWT_ISSUER: ${JWT_ISSUER:-fraud-detection-platform}
+
+x-db-env: &db-env
+  MYSQL_USER: ${MYSQL_APP_USER:-fraud}
+  MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD:-fraud}
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  # ------------------------------------------------------------------ infra --
+  mysql:
+    image: mysql:${MYSQL_VERSION:-8.4}
+    <<: *restart
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_APP_USER: ${MYSQL_APP_USER:-fraud}
+      MYSQL_APP_PASSWORD: ${MYSQL_APP_PASSWORD:-fraud}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # Runs once on first init: creates the six fraud_* schemas + the shared app user.
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  cassandra:
+    image: cassandra:${CASSANDRA_VERSION:-5.0}
+    <<: *restart
+    environment:
+      CASSANDRA_CLUSTER_NAME: fraud-cluster
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces' >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  # One-shot: applies the query-first keyspace/tables, then exits 0.
+  cassandra-init:
+    image: cassandra:${CASSANDRA_VERSION:-5.0}
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    restart: "no"
+    volumes:
+      - ../../services/fraud-detection-service/src/main/resources/cassandra/schema.cql:/schema.cql:ro
+    command: >
+      bash -c '
+      until cqlsh cassandra -e "describe cluster" >/dev/null 2>&1; do echo "waiting for cassandra..."; sleep 3; done;
+      echo "applying schema.cql"; cqlsh cassandra -f /schema.cql && echo "cassandra schema applied"'
+
+  kafka:
+    image: confluentinc/cp-kafka:${CONFLUENT_VERSION:-8.0.0}
+    <<: *restart
+    ports:
+      - "9092:9092"     # in-network listener (advertised as kafka:9092)
+      - "29092:29092"   # host listener for local tooling (localhost:29092)
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # Fixed cluster id so the KRaft storage dir formats deterministically across restarts.
+      CLUSTER_ID: fraud-kraft-cluster-0001
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:${CONFLUENT_VERSION:-8.0.0}
+    <<: *restart
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8090:8081"   # internal http://schema-registry:8081, host http://localhost:8090
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: backward
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8081/subjects >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:${KAFKA_UI_VERSION:-v0.7.2}
+    <<: *restart
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    ports:
+      - "8100:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: fraud
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+      DYNAMIC_CONFIG_ENABLED: "true"
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION:-9.0.4}
+    <<: *restart
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+      bootstrap.memory_lock: "true"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "9200:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${ELASTIC_VERSION:-9.0.4}
+    <<: *restart
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    ports:
+      - "5601:5601"
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+
+  jaeger:
+    image: jaegertracing/all-in-one:${JAEGER_VERSION:-1.62.0}
+    <<: *restart
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # Jaeger UI
+
+  otel-collector:
+    image: otel/opentelemetry-collector:${OTELCOL_VERSION:-0.111.0}
+    <<: *restart
+    depends_on:
+      - jaeger
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4318:4318"   # OTLP HTTP (services export here as otel-collector:4318)
+      - "4317:4317"   # OTLP gRPC
+
+  # ------------------------------------------------------------- app services --
+  customer-service:
+    build: { context: ../.., dockerfile: services/customer-service/Dockerfile }
+    image: frauddetect/customer-service:${PLATFORM_VERSION:-1.0.0}
+    <<: *restart
+    environment:
+      <<: [*base-env, *db-env]
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin-change-me}
+    ports:
+      - "8081:8081"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
+  account-service:
+    build: { context: ../.., dockerfile: services/account-service/Dockerfile }
+    image: frauddetect/account-service:${PLATFORM_VERSION:-1.0.0}
+    <<: *restart
+    environment:
+      <<: [*base-env, *db-env]
+    ports:
+      - "8082:8082"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
+  transaction-service:
+    build: { context: ../.., dockerfile: services/transaction-service/Dockerfile }
+    image: frauddetect/transaction-service:${PLATFORM_VERSION:-1.0.0}
+    <<: *restart
+    environment:
+      <<: [*base-env, *db-env]
+    ports:
+      - "8083:8083"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
+  fraud-detection-service:
+    build: { context: ../.., dockerfile: services/fraud-detection-service/Dockerfile }
+    image: frauddetect/fraud-detection-service:${PLATFORM_VERSION:-1.0.0}
+    <<: *restart
+    environment:
+      <<: [*base-env, *db-env]
+    ports:
+      - "8084:8084"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      cassandra-init:
+        condition: service_completed_successfully
+      risk-scoring-service:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+
+  risk-scoring-service:
+    build: { context: ../.., dockerfile: services/risk-scoring-service/Dockerfile }
+    image: frauddetect/risk-scoring-service:${PLATFORM_VERSION:-1.0.0}
+    <<: *restart
+    environment:
+      <<: *base-env
+    ports:
+      - "8085:8085"   # REST/actuator
+      - "9095:9095"   # gRPC
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  alert-service:
+    build: { context: ../.., dockerfile: services/alert-service/Dockerfile }
+    image: frauddetect/alert-service:${PLATFORM_VERSION:-1.0.0}
+    <<: *restart
+    environment:
+      <<: [*base-env, *db-env]
+    ports:
+      - "8086:8086"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
+  notification-service:
+    build: { context: ../.., dockerfile: services/notification-service/Dockerfile }
+    image: frauddetect/notification-service:${PLATFORM_VERSION:-1.0.0}
+    <<: *restart
+    environment:
+      <<: [*base-env, *db-env]
+    ports:
+      - "8087:8087"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
+  audit-service:
+    build: { context: ../.., dockerfile: services/audit-service/Dockerfile }
+    image: frauddetect/audit-service:${PLATFORM_VERSION:-1.0.0}
+    <<: *restart
+    environment:
+      <<: *base-env
+    ports:
+      - "8088:8088"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
+  api-gateway:
+    build: { context: ../.., dockerfile: services/api-gateway/Dockerfile }
+    image: frauddetect/api-gateway:${PLATFORM_VERSION:-1.0.0}
+    <<: *restart
+    environment:
+      <<: *base-env
+    ports:
+      - "8080:8080"
+    depends_on:
+      - customer-service
+      - account-service
+      - transaction-service
+      - fraud-detection-service
+      - alert-service
+      - notification-service
+      - audit-service
+
+volumes:
+  mysql-data:
+  cassandra-data:
+  es-data:
+  kafka-data:

@@ -1,0 +1,46 @@
+# OpenShift overlay on ../k8s.
+#
+# Two OpenShift-specific changes to the application workloads:
+#   1. Remove the explicit pod-level runAsUser/fsGroup so the `restricted-v2` SCC
+#      assigns them from the namespace's UID range (the images are arbitrary-UID
+#      safe: non-root, group 0, chmod g=u). The rest of the hardened
+#      securityContext (drop ALL caps, no privilege escalation, RO rootfs,
+#      seccomp RuntimeDefault, runAsNonRoot) already matches restricted-v2.
+#   2. Replace the nginx Ingress with an OpenShift Route (edge TLS).
+#
+# Build (the base reads canonical files outside its dir, so keep the flag):
+#   kustomize build --load-restrictor=LoadRestrictionsNone deploy/openshift | oc apply -f -
+#
+# The 9 application workloads need NO SCC grants. The bundled dev infra does
+# (MySQL/Kafka/Cassandra start as root) — see README.md; prefer operators.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: fraud-detection
+
+resources:
+  - ../k8s
+  - route.yaml
+
+patches:
+  # OpenShift uses a Route; drop the nginx Ingress from the base.
+  - target:
+      kind: Ingress
+      name: fraud-platform
+    patch: |-
+      $patch: delete
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: fraud-platform
+
+  # Let restricted-v2 assign UID/fsGroup for the application pods only
+  # (component in {gateway, backend}); infra workloads are untouched here.
+  - target:
+      kind: Deployment
+      labelSelector: "app.kubernetes.io/component in (gateway,backend)"
+    patch: |-
+      - op: remove
+        path: /spec/template/spec/securityContext/runAsUser
+      - op: remove
+        path: /spec/template/spec/securityContext/fsGroup

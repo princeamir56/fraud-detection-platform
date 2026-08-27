@@ -1,0 +1,57 @@
+server:
+  port: 8085
+spring:
+  application:
+    name: risk-scoring-service
+  threads:
+    virtual:
+      enabled: true
+
+grpc:
+  server:
+    port: ${GRPC_PORT:9095}
+    shutdown-grace-seconds: 15
+    max-inbound-message-bytes: 4194304
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+
+logging:
+  level:
+    com.frauddetect: INFO
+    io.grpc: WARN
+
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+grpc:
+  server:
+    port: 9095
+management:
+  otlp:
+    tracing:
+      endpoint: http://otel-collector:4318/v1/traces
+logging:
+  # Spring Boot 4 built-in structured logging — ECS JSON to stdout, includes MDC (correlationId).
+  structured:
+    format:
+      console: ecs

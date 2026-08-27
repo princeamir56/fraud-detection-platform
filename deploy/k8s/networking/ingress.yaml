@@ -1,0 +1,46 @@
+# Single external entry point -> api-gateway. Observability UIs (Kibana, Jaeger)
+# are exposed on separate hosts for convenience in a dev cluster.
+#
+# Add to /etc/hosts (kind/minikube):  <ingress-ip>  fraud.local kibana.fraud.local jaeger.fraud.local
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fraud-platform
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/part-of: fraud-detection-platform
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: fraud.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 8080
+    - host: kibana.fraud.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kibana
+                port:
+                  number: 5601
+    - host: jaeger.fraud.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: jaeger
+                port:
+                  number: 16686

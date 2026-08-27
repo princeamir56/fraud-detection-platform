@@ -1,0 +1,35 @@
+{
+  "type": "record",
+  "name": "FraudScoreCalculated",
+  "namespace": "com.frauddetect.avro.events",
+  "doc": "Result of the fraud rule engine for a transaction, including the risk sub-score obtained synchronously from risk-scoring-service via gRPC. v1.",
+  "fields": [
+    { "name": "eventId", "type": "string" },
+    { "name": "correlationId", "type": "string" },
+    { "name": "occurredAt", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "transactionId", "type": "string" },
+    { "name": "customerId", "type": "string" },
+    { "name": "accountId", "type": "string" },
+    { "name": "score", "type": "int", "doc": "Aggregate 0-100 fraud score." },
+    { "name": "severity", "type": "string", "doc": "LOW|MEDIUM|HIGH|CRITICAL." },
+    { "name": "decision", "type": "string", "doc": "ALLOW|REVIEW|BLOCK." },
+    { "name": "modelRiskScore", "type": ["null", "double"], "default": null, "doc": "Risk sub-score (0-1) from risk-scoring-service gRPC call; null on graceful degradation." },
+    {
+      "name": "triggeredRules",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "TriggeredRule",
+          "fields": [
+            { "name": "ruleCode", "type": "string" },
+            { "name": "description", "type": "string" },
+            { "name": "weight", "type": "int" },
+            { "name": "score", "type": "int" }
+          ]
+        }
+      },
+      "default": []
+    }
+  ]
+}

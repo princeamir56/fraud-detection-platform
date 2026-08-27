@@ -1,0 +1,54 @@
+# Namespace perimeter (networking.k8s.io/v1). Requires a CNI that enforces
+# NetworkPolicy (Calico, Cilium, etc.); on a CNI that ignores them these are no-ops.
+#
+# Model: deny all ingress by default, then (a) permit free east-west traffic
+# within the namespace so services and infra can talk, and (b) allow external
+# clients to reach ONLY the api-gateway. Everything else is unreachable from
+# outside the namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/part-of: fraud-detection-platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Allow any pod in this namespace to reach any other (service<->service, service<->infra).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/part-of: fraud-detection-platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+---
+# Allow external traffic (through the ingress controller) to the gateway only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-to-gateway
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/part-of: fraud-detection-platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: api-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    # Empty `from` = all sources (the ingress controller lives in another namespace).
+    - ports:
+        - protocol: TCP
+          port: 8080

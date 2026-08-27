@@ -1,0 +1,56 @@
+# Full platform (dev infra + all 9 services + networking) for a local cluster.
+#
+#   kustomize build --load-restrictor=LoadRestrictionsNone deploy/k8s | kubectl apply -f -
+#
+# The --load-restrictor flag is required because the configMapGenerators below
+# read canonical files from outside deploy/k8s (single source of truth: the same
+# MySQL init script + OTel config the docker-compose stack uses, and the fraud
+# service's schema.cql). If you prefer not to pass that flag, use ./apply.sh,
+# which creates those three ConfigMaps with `kubectl create --from-file`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: fraud-detection
+
+resources:
+  - namespace.yaml
+  - config.yaml
+  # --- dev infra (delete for production; use operators/managed services) ---
+  - infra/mysql.yaml
+  - infra/cassandra.yaml
+  - infra/kafka.yaml
+  - infra/schema-registry.yaml
+  - infra/elasticsearch.yaml
+  - infra/kibana.yaml
+  - infra/observability.yaml
+  # --- application workloads ---
+  - apps/api-gateway.yaml
+  - apps/customer-service.yaml
+  - apps/account-service.yaml
+  - apps/transaction-service.yaml
+  - apps/fraud-detection-service.yaml
+  - apps/risk-scoring-service.yaml
+  - apps/alert-service.yaml
+  - apps/notification-service.yaml
+  - apps/audit-service.yaml
+  # --- networking / policy ---
+  - networking/ingress.yaml
+  - networking/hpa.yaml
+  - networking/pdb.yaml
+  - networking/network-policy.yaml
+
+# Stable names (no hash suffix) so the plain references in the infra manifests
+# resolve even if applied piecemeal.
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: mysql-init
+    files:
+      - 01-init.sh=../docker/mysql/init/01-init.sh
+  - name: otel-collector-config
+    files:
+      - otel-collector-config.yaml=../docker/otel-collector-config.yaml
+  - name: cassandra-schema
+    files:
+      - schema.cql=../../services/fraud-detection-service/src/main/resources/cassandra/schema.cql

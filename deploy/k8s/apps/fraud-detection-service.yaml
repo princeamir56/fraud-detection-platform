@@ -1,0 +1,98 @@
+# Core fraud engine: consumes transaction.created, runs the configurable rule
+# engine, calls risk-scoring over gRPC, emits fraud.score.calculated /
+# fraud.detected. Backed by MySQL (fraud_detection), Cassandra (features),
+# Kafka + Schema Registry, and Elasticsearch. This is the hot path (see HPA).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-detection-service
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/name: fraud-detection-service
+    app.kubernetes.io/part-of: fraud-detection-platform
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fraud-detection-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fraud-detection-service
+        app.kubernetes.io/part-of: fraud-detection-platform
+        app.kubernetes.io/component: backend
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: fraud-detection-service
+          image: frauddetect/fraud-detection-service:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8084
+          envFrom:
+            - configMapRef:
+                name: platform-config
+            - secretRef:
+                name: platform-secrets
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "768Mi"
+            limits:
+              cpu: "2"
+              memory: "1536Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            failureThreshold: 40
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraud-detection-service
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/name: fraud-detection-service
+    app.kubernetes.io/part-of: fraud-detection-platform
+spec:
+  selector:
+    app.kubernetes.io/name: fraud-detection-service
+  ports:
+    - name: http
+      port: 8084
+      targetPort: http

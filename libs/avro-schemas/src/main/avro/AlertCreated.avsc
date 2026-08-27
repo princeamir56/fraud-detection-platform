@@ -1,0 +1,21 @@
+{
+  "type": "record",
+  "name": "AlertCreated",
+  "namespace": "com.frauddetect.avro.events",
+  "doc": "Emitted by alert-service when a fraud alert is opened from a FraudDetected event. v1.",
+  "fields": [
+    { "name": "eventId", "type": "string" },
+    { "name": "correlationId", "type": "string" },
+    { "name": "occurredAt", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "alertId", "type": "string" },
+    { "name": "transactionId", "type": "string" },
+    { "name": "customerId", "type": "string" },
+    { "name": "accountId", "type": "string" },
+    { "name": "severity", "type": "string" },
+    { "name": "score", "type": "int" },
+    { "name": "status", "type": "string", "default": "OPEN", "doc": "OPEN|ACK|RESOLVED." },
+    { "name": "title", "type": "string" },
+    { "name": "description", "type": "string" },
+    { "name": "assignedTo", "type": ["null", "string"], "default": null }
+  ]
+}

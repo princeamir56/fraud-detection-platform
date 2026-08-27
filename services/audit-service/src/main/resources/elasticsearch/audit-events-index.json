@@ -1,0 +1,26 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "properties": {
+      "eventId":       { "type": "keyword" },
+      "eventType":     { "type": "keyword" },
+      "correlationId": { "type": "keyword" },
+      "occurredAt":    { "type": "date" },
+      "indexedAt":     { "type": "date" },
+      "transactionId": { "type": "keyword" },
+      "accountId":     { "type": "keyword" },
+      "customerId":    { "type": "keyword" },
+      "alertId":       { "type": "keyword" },
+      "amount":        { "type": "double" },
+      "currency":      { "type": "keyword" },
+      "score":         { "type": "integer" },
+      "severity":      { "type": "keyword" },
+      "decision":      { "type": "keyword" },
+      "reasonCode":    { "type": "keyword" },
+      "summary":       { "type": "text", "fields": { "keyword": { "type": "keyword", "ignore_above": 256 } } }
+    }
+  }
+}

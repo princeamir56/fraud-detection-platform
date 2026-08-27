@@ -1,0 +1,65 @@
+# OpenShift Routes. The router terminates TLS (edge) and forwards to the
+# in-cluster Services. Hosts are auto-assigned as
+# <name>-<namespace>.apps.<cluster-domain> unless you set spec.host.
+#
+# The gateway is the only route that matters for the API; Kibana/Jaeger are
+# dev conveniences (drop them for anything shared).
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: api-gateway
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/name: api-gateway
+    app.kubernetes.io/part-of: fraud-detection-platform
+spec:
+  to:
+    kind: Service
+    name: api-gateway
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: kibana
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/name: kibana
+    app.kubernetes.io/part-of: fraud-detection-platform
+spec:
+  to:
+    kind: Service
+    name: kibana
+    weight: 100
+  port:
+    targetPort: 5601
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Allow
+  wildcardPolicy: None
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: jaeger
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/name: jaeger
+    app.kubernetes.io/part-of: fraud-detection-platform
+spec:
+  to:
+    kind: Service
+    name: jaeger
+    weight: 100
+  port:
+    targetPort: 16686
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Allow
+  wildcardPolicy: None

@@ -1,0 +1,99 @@
+server:
+  port: 8086
+
+spring:
+  application:
+    name: alert-service
+  threads:
+    virtual:
+      enabled: true
+
+  # --- MySQL: alert / case store (relational, transactional) ---
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/fraud_alert?useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${MYSQL_USER:fraud}
+    password: ${MYSQL_PASSWORD:fraud}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    baseline-on-migrate: false
+
+  # --- Kafka + Avro (Confluent Schema Registry) ---
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: alert-service
+    properties:
+      schema.registry.url: ${SCHEMA_REGISTRY_URL:http://localhost:8090}
+
+# --- Elasticsearch (modern typed Java client; see ElasticsearchProperties) ---
+elasticsearch:
+  uris: ${ELASTICSEARCH_URIS:http://localhost:9200}
+  username: ${ELASTICSEARCH_USERNAME:}
+  password: ${ELASTICSEARCH_PASSWORD:}
+
+# HS256 secret MUST be provided via env in every real environment; the default is a dev-only
+# placeholder that is intentionally long enough (>=32 bytes) to satisfy the key-length check.
+security:
+  jwt:
+    secret: ${JWT_SECRET:dev-only-insecure-secret-change-me-32bytes-minimum}
+    issuer: ${JWT_ISSUER:fraud-detection-platform}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+
+logging:
+  level:
+    com.frauddetect: INFO
+    org.apache.kafka: WARN
+    org.hibernate.SQL: WARN
+
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+  datasource:
+    url: jdbc:mysql://mysql:3306/fraud_alert?useSSL=false&allowPublicKeyRetrieval=true
+  kafka:
+    bootstrap-servers: kafka:9092
+    properties:
+      schema.registry.url: http://schema-registry:8081
+
+elasticsearch:
+  uris: http://elasticsearch:9200
+
+management:
+  otlp:
+    tracing:
+      endpoint: http://otel-collector:4318/v1/traces
+
+logging:
+  # Spring Boot 4 built-in structured logging — ECS JSON to stdout, includes MDC (correlationId).
+  structured:
+    format:
+      console: ecs

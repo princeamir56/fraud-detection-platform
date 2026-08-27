@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "name": "AlertResolved",
+  "namespace": "com.frauddetect.avro.events",
+  "doc": "Emitted by alert-service when an investigator resolves an alert / closes a case. v1.",
+  "fields": [
+    { "name": "eventId", "type": "string" },
+    { "name": "correlationId", "type": "string" },
+    { "name": "occurredAt", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "alertId", "type": "string" },
+    { "name": "transactionId", "type": "string" },
+    { "name": "customerId", "type": "string" },
+    { "name": "resolution", "type": "string", "doc": "CONFIRMED_FRAUD|FALSE_POSITIVE|DISMISSED." },
+    { "name": "resolvedBy", "type": "string", "doc": "Investigator/analyst subject id." },
+    { "name": "notes", "type": ["null", "string"], "default": null },
+    { "name": "caseId", "type": ["null", "string"], "default": null }
+  ]
+}

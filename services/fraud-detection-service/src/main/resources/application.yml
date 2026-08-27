@@ -1,0 +1,133 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: fraud-detection-service
+  threads:
+    virtual:
+      enabled: true
+
+  # --- MySQL: configurable fraud_rules catalogue + consumer dedupe (relational, transactional) ---
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/fraud_detection?useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${MYSQL_USER:fraud}
+    password: ${MYSQL_PASSWORD:fraud}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    baseline-on-migrate: false
+
+  # --- Cassandra: high-volume behavioural / velocity / feature time-series ---
+  cassandra:
+    keyspace-name: ${CASSANDRA_KEYSPACE:fraud}
+    contact-points: ${CASSANDRA_CONTACT_POINTS:localhost}
+    port: ${CASSANDRA_PORT:9042}
+    local-datacenter: ${CASSANDRA_DATACENTER:datacenter1}
+    # Tables/keyspace are owned by schema.cql (carries clustering order + TTL). In dev this can create
+    # entity-derived tables in an existing keyspace; docker/prod set NONE and apply schema.cql at init.
+    schema-action: ${CASSANDRA_SCHEMA_ACTION:CREATE_IF_NOT_EXISTS}
+    request:
+      timeout: 5s
+    connection:
+      connect-timeout: 10s
+      init-query-timeout: 10s
+
+  # --- Kafka + Avro (Confluent Schema Registry) ---
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: fraud-detection
+    properties:
+      schema.registry.url: ${SCHEMA_REGISTRY_URL:http://localhost:8090}
+
+# --- Elasticsearch (modern typed Java client; see ElasticsearchProperties) ---
+elasticsearch:
+  uris: ${ELASTICSEARCH_URIS:http://localhost:9200}
+  username: ${ELASTICSEARCH_USERNAME:}
+  password: ${ELASTICSEARCH_PASSWORD:}
+
+# --- gRPC into risk-scoring-service (bounded by deadline + circuit breaker; degrades gracefully) ---
+risk:
+  grpc:
+    host: ${RISK_GRPC_HOST:localhost}
+    port: ${RISK_GRPC_PORT:9095}
+    deadline-ms: ${RISK_GRPC_DEADLINE_MS:300}
+    plaintext: ${RISK_GRPC_PLAINTEXT:true}
+
+# HS256 secret MUST be provided via env in every real environment; the default is a dev-only
+# placeholder that is intentionally long enough (>=32 bytes) to satisfy the key-length check.
+security:
+  jwt:
+    secret: ${JWT_SECRET:dev-only-insecure-secret-change-me-32bytes-minimum}
+    issuer: ${JWT_ISSUER:fraud-detection-platform}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+
+logging:
+  level:
+    com.frauddetect: INFO
+    org.apache.kafka: WARN
+    org.hibernate.SQL: WARN
+    com.datastax.oss.driver: WARN
+
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+  datasource:
+    url: jdbc:mysql://mysql:3306/fraud_detection?useSSL=false&allowPublicKeyRetrieval=true
+  cassandra:
+    contact-points: cassandra
+    local-datacenter: datacenter1
+    # schema.cql is applied by the Cassandra init container in docker-compose; do not auto-create.
+    schema-action: NONE
+  kafka:
+    bootstrap-servers: kafka:9092
+    properties:
+      schema.registry.url: http://schema-registry:8081
+
+elasticsearch:
+  uris: http://elasticsearch:9200
+
+risk:
+  grpc:
+    host: risk-scoring-service
+    port: 9095
+
+management:
+  otlp:
+    tracing:
+      endpoint: http://otel-collector:4318/v1/traces
+
+logging:
+  # Spring Boot 4 built-in structured logging — ECS JSON to stdout, includes MDC (correlationId).
+  structured:
+    format:
+      console: ecs

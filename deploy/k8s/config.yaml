@@ -1,0 +1,40 @@
+# Shared non-secret config + secrets for all application workloads.
+#
+# Every app Deployment does `envFrom: [platform-config, platform-secrets]`, so:
+#   - SPRING_PROFILES_ACTIVE=docker  -> the `docker` Spring profile hardcodes
+#     in-cluster DNS hostnames (mysql, kafka, cassandra, schema-registry,
+#     elasticsearch, otel-collector, risk-scoring-service) that exactly match
+#     the Service names in this namespace, so no separate k8s profile is needed.
+#   - JWT_SECRET / MYSQL_* / ADMIN_* come from the Secret below.
+# Services that don't use a given var (e.g. api-gateway ignores MYSQL_*) simply
+# leave it unread — extra env is harmless.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-config
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/part-of: fraud-detection-platform
+data:
+  SPRING_PROFILES_ACTIVE: "docker"
+  JWT_ISSUER: "fraud-detection-platform"
+---
+# DEV-ONLY placeholder secrets. NEVER commit real values. In production, source
+# these from a real secrets manager — External Secrets Operator, Sealed Secrets,
+# or Vault Agent Injector — and delete this manifest (see docs/security.md).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: platform-secrets
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/part-of: fraud-detection-platform
+type: Opaque
+stringData:
+  # HS256 signing key — must be >= 32 bytes or services fail fast on boot.
+  JWT_SECRET: "dev-only-insecure-secret-change-me-32bytes-minimum"
+  MYSQL_USER: "fraud"
+  MYSQL_PASSWORD: "fraud"
+  # customer-service bootstrap admin (used to mint the first ADMIN token).
+  ADMIN_USERNAME: "admin"
+  ADMIN_PASSWORD: "admin-change-me"

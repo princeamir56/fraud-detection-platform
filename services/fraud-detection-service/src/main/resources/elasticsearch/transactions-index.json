@@ -1,0 +1,29 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "properties": {
+      "transactionId":   { "type": "keyword" },
+      "accountId":       { "type": "keyword" },
+      "customerId":      { "type": "keyword" },
+      "amount":          { "type": "double" },
+      "currency":        { "type": "keyword" },
+      "type":            { "type": "keyword" },
+      "countryCode":     { "type": "keyword" },
+      "merchantId":      { "type": "keyword" },
+      "merchantCategory":{ "type": "text", "fields": { "keyword": { "type": "keyword", "ignore_above": 256 } } },
+      "deviceId":        { "type": "keyword" },
+      "ipAddress":       { "type": "keyword" },
+      "latitude":        { "type": "float" },
+      "longitude":       { "type": "float" },
+      "score":           { "type": "integer" },
+      "severity":        { "type": "keyword" },
+      "decision":        { "type": "keyword" },
+      "modelRiskScore":  { "type": "double" },
+      "occurredAt":      { "type": "date" },
+      "correlationId":   { "type": "keyword" }
+    }
+  }
+}

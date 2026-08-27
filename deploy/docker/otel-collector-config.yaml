@@ -1,0 +1,40 @@
+# OpenTelemetry Collector — receives OTLP traces from every service
+# (exported to otel-collector:4318 over HTTP) and forwards them to Jaeger.
+# See docs/observability.md for the end-to-end tracing topology.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  # Bounds memory before batching so a trace spike can't OOM the collector.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+exporters:
+  # Jaeger accepts OTLP directly (COLLECTOR_OTLP_ENABLED=true); gRPC on 4317.
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  # Console echo for local debugging; drop to a lower verbosity in production.
+  debug:
+    verbosity: normal
+
+service:
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/jaeger, debug]

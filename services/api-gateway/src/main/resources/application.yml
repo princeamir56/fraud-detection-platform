@@ -1,0 +1,102 @@
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    # Spring Cloud 2025.1.x is validated against Spring Boot 4.0.x, and no Spring Cloud release train
+    # targets Boot 4.1.x yet (this platform runs 4.1.0). Gateway Server WebFlux is API-compatible
+    # across this minor bump, so we disable the strict version gate that would otherwise abort startup.
+    # The gateway's @SpringBootTest context-load test is the empirical proof it actually runs on 4.1.0.
+    # Revisit and re-enable once a Boot 4.1-aligned Spring Cloud train ships.
+    compatibility-verifier:
+      enabled: false
+  main:
+    # Force the reactive stack: the gateway runs on Netty/WebFlux, never a servlet container.
+    web-application-type: reactive
+
+# HS256 secret MUST be provided via env in every real environment; the default is a dev-only
+# placeholder that is intentionally long enough (>=32 bytes) to satisfy the key-length check.
+# The gateway validates tokens at the edge; downstream services re-validate independently.
+security:
+  jwt:
+    secret: ${JWT_SECRET:dev-only-insecure-secret-change-me-32bytes-minimum}
+    issuer: ${JWT_ISSUER:fraud-detection-platform}
+
+# --- Gateway routing + edge policy (bound by GatewayRoutesProperties / GatewaySecurityProperties /
+#     RateLimitProperties). Route URIs default to localhost:PORT for `mvnw spring-boot:run`, and are
+#     overridden per-service-hostname in the docker profile below. ---
+gateway:
+  routes:
+    customer-uri: ${CUSTOMER_SERVICE_URI:http://localhost:8081}
+    account-uri: ${ACCOUNT_SERVICE_URI:http://localhost:8082}
+    transaction-uri: ${TRANSACTION_SERVICE_URI:http://localhost:8083}
+    fraud-uri: ${FRAUD_SERVICE_URI:http://localhost:8084}
+    alert-uri: ${ALERT_SERVICE_URI:http://localhost:8086}
+    notification-uri: ${NOTIFICATION_SERVICE_URI:http://localhost:8087}
+    audit-uri: ${AUDIT_SERVICE_URI:http://localhost:8088}
+  security:
+    # Paths reachable without a JWT: login/token issuance and the actuator probes.
+    public-paths:
+      - /api/v1/auth/**
+      - /actuator/**
+  rate-limit:
+    enabled: ${GATEWAY_RATE_LIMIT_ENABLED:true}
+    # Token bucket per client IP (applied before auth, so it also protects the public /auth endpoint).
+    capacity: ${GATEWAY_RATE_LIMIT_CAPACITY:100}
+    refill-tokens: ${GATEWAY_RATE_LIMIT_REFILL_TOKENS:100}
+    refill-period: ${GATEWAY_RATE_LIMIT_REFILL_PERIOD:1m}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,gateway
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+
+logging:
+  level:
+    com.frauddetect: INFO
+    org.springframework.cloud.gateway: INFO
+
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+
+gateway:
+  routes:
+    customer-uri: http://customer-service:8081
+    account-uri: http://account-service:8082
+    transaction-uri: http://transaction-service:8083
+    fraud-uri: http://fraud-detection-service:8084
+    alert-uri: http://alert-service:8086
+    notification-uri: http://notification-service:8087
+    audit-uri: http://audit-service:8088
+
+management:
+  otlp:
+    tracing:
+      endpoint: http://otel-collector:4318/v1/traces
+
+logging:
+  # Spring Boot 4 built-in structured logging — ECS JSON to stdout, includes MDC (correlationId).
+  structured:
+    format:
+      console: ecs

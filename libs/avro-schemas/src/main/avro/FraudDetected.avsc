@@ -1,0 +1,22 @@
+{
+  "type": "record",
+  "name": "FraudDetected",
+  "namespace": "com.frauddetect.avro.events",
+  "doc": "Emitted only when a transaction scores in the HIGH/CRITICAL band (decision REVIEW/BLOCK). Drives alert-service. v1.",
+  "fields": [
+    { "name": "eventId", "type": "string" },
+    { "name": "correlationId", "type": "string" },
+    { "name": "occurredAt", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "transactionId", "type": "string" },
+    { "name": "customerId", "type": "string" },
+    { "name": "accountId", "type": "string" },
+    { "name": "score", "type": "int" },
+    { "name": "severity", "type": "string" },
+    { "name": "decision", "type": "string", "doc": "REVIEW|BLOCK." },
+    { "name": "primaryReason", "type": "string", "doc": "Highest-weighted triggered rule description." },
+    { "name": "triggeredRuleCodes", "type": { "type": "array", "items": "string" }, "default": [] },
+    { "name": "amount", "type": { "type": "bytes", "logicalType": "decimal", "precision": 19, "scale": 4 } },
+    { "name": "currency", "type": "string" },
+    { "name": "countryCode", "type": "string" }
+  ]
+}

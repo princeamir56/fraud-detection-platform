@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "name": "TransactionRejected",
+  "namespace": "com.frauddetect.avro.events",
+  "doc": "Emitted when a transaction is rejected during validation or by a blocking fraud verdict. v1.",
+  "fields": [
+    { "name": "eventId", "type": "string" },
+    { "name": "correlationId", "type": "string" },
+    { "name": "occurredAt", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "transactionId", "type": "string" },
+    { "name": "accountId", "type": "string" },
+    { "name": "customerId", "type": "string" },
+    { "name": "reasonCode", "type": "string", "doc": "Machine-readable rejection reason, e.g. FRAUD_BLOCKED, INSUFFICIENT_FUNDS, VALIDATION_FAILED." },
+    { "name": "reason", "type": "string", "doc": "Human-readable rejection reason." },
+    { "name": "fraudScore", "type": ["null", "int"], "default": null, "doc": "Present when rejection was fraud-driven." },
+    { "name": "severity", "type": ["null", "string"], "default": null }
+  ]
+}

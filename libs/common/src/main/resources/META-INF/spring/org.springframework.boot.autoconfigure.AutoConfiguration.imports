@@ -1,0 +1,3 @@
+com.frauddetect.common.autoconfigure.CommonWebAutoConfiguration
+com.frauddetect.common.autoconfigure.CommonSecurityAutoConfiguration
+com.frauddetect.common.autoconfigure.CommonServletSecurityAutoConfiguration

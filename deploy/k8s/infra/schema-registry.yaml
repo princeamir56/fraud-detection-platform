@@ -1,0 +1,76 @@
+# DEV/DEMO ONLY Confluent Schema Registry (stateless; state lives in a Kafka topic).
+# Serves the Avro schemas at http://schema-registry:8081 (matches the `docker`
+# Spring profile). Host-exposed on :8090 only in docker-compose, not here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: schema-registry
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/name: schema-registry
+    app.kubernetes.io/part-of: fraud-detection-platform
+spec:
+  selector:
+    app.kubernetes.io/name: schema-registry
+  ports:
+    - name: http
+      port: 8081
+      targetPort: 8081
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: schema-registry
+  namespace: fraud-detection
+  labels:
+    app.kubernetes.io/name: schema-registry
+    app.kubernetes.io/part-of: fraud-detection-platform
+    app.kubernetes.io/component: messaging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: schema-registry
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: schema-registry
+        app.kubernetes.io/part-of: fraud-detection-platform
+        app.kubernetes.io/component: messaging
+    spec:
+      containers:
+        - name: schema-registry
+          image: confluentinc/cp-schema-registry:8.0.0
+          ports:
+            - name: http
+              containerPort: 8081
+          env:
+            - name: SCHEMA_REGISTRY_HOST_NAME
+              value: schema-registry
+            - name: SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS
+              value: PLAINTEXT://kafka:9092
+            - name: SCHEMA_REGISTRY_LISTENERS
+              value: http://0.0.0.0:8081
+            - name: SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL
+              value: backward
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+          readinessProbe:
+            httpGet:
+              path: /subjects
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /subjects
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 30
+            failureThreshold: 6

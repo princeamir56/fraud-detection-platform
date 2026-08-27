@@ -1,0 +1,17 @@
+# Namespace for the entire fraud-detection platform (app workloads + dev infra).
+#
+# NOTE on Pod Security Admission: we intentionally do NOT enforce the `restricted`
+# profile at the namespace level, because the bundled dev infra images (Kafka,
+# Cassandra, Elasticsearch, MySQL) don't all satisfy `restricted`. The *application*
+# pods each carry a restricted-grade securityContext regardless (runAsNonRoot,
+# drop ALL caps, readOnlyRootFilesystem, seccomp RuntimeDefault) and are validated
+# under OpenShift's restricted-v2 SCC (see deploy/openshift). In production, run
+# infra via operators/managed services in a separate, restricted-enforced namespace.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fraud-detection
+  labels:
+    app.kubernetes.io/part-of: fraud-detection-platform
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
