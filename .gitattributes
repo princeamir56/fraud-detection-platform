@@ -1,0 +1,73 @@
+# =============================================================================
+# Line-ending and binary policy — the single reason a Windows clone of this repo
+# can be built with Docker.
+#
+# Git for Windows installs with core.autocrlf=true by default, which rewrites
+# text files to CRLF on checkout. Several files here are executed by a POSIX
+# shell inside a Linux container, where a trailing CR is fatal:
+#
+#   • mvnw                              -> shebang becomes `#!/bin/sh\r`
+#                                          => "bad interpreter" and every one of
+#                                          the nine image builds dies immediately
+#   • .mvn/wrapper/maven-wrapper.properties -> mvnw parses it line-by-line, so
+#                                          distributionUrl gains a trailing CR
+#                                          and the Maven download URL is invalid
+#   • deploy/docker/mysql/init/01-init.sh -> MySQL's initdb entrypoint aborts,
+#                                          the six fraud_* schemas are never
+#                                          created, and Flyway fails everywhere
+#
+# The rules below normalise the repository to LF and force LF into the working
+# tree regardless of the cloner's core.autocrlf setting. Windows-only scripts
+# keep CRLF; binaries are never transformed.
+# =============================================================================
+
+# Default: normalise every text file to LF in the index and the working tree.
+* text=auto eol=lf
+
+# --- Executed by a Linux shell (container builds, entrypoints, CI) ---
+mvnw            text eol=lf
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.properties    text eol=lf
+
+# --- Parsed by JVM/CLI tooling that dislikes stray CRs ---
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.cql           text eol=lf
+*.avsc          text eol=lf
+*.proto         text eol=lf
+*.ndjson        text eol=lf
+*.sql           text eol=lf
+*.json          text eol=lf
+
+# --- Windows-native scripts: CRLF is correct here ---
+*.cmd           text eol=crlf
+*.bat           text eol=crlf
+*.ps1           text eol=crlf
+
+# --- Binaries: never transform, never diff as text ---
+# `text=auto` above already spares these — Git's heuristic sees the NUL bytes and
+# declines to convert. Naming them explicitly removes the dependence on that
+# heuristic, which is what protects the compiled artefacts currently tracked
+# under target/ (jars, .class, jacoco.exec, the bundled protoc executables).
+*.jar           binary
+*.war           binary
+*.ear           binary
+*.class         binary
+*.exec          binary
+*.exe           binary
+*.dll           binary
+*.so            binary
+*.dylib         binary
+*.original      binary
+*.zip           binary
+*.gz            binary
+*.tar.gz        binary
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.pdf           binary
+*.keystore      binary
+*.p12           binary

@@ -1,0 +1,54 @@
+# =============================================================================
+# Docker build context filter.
+#
+# All nine service images set `build.context: ../..` (the repository root) in
+# deploy/docker/docker-compose.yml, so every build ships this directory to the
+# daemon. Without this file that is ~283 MB per build (.git alone is ~129 MB,
+# plus a dozen stale target/ directories) — roughly 2.5 GB of context transfer
+# for one `docker compose up --build`.
+#
+# The Dockerfiles need exactly four things: .mvn/, mvnw, pom.xml, libs/ and
+# services/ sources. Everything else is excluded.
+#
+# NOTE: compose's bind mounts (./mysql/init, ./otel-collector-config.yaml and
+# services/fraud-detection-service/src/main/resources/cassandra/schema.cql) are
+# resolved on the HOST at container start, not from the build context, so
+# excluding deploy/ here does not affect them.
+# =============================================================================
+
+# --- Version control and build output ---
+.git
+.gitignore
+.gitattributes
+**/target
+**/*.class
+**/*.exec
+**/surefire-reports
+**/failsafe-reports
+
+# --- Not needed to compile: deploy manifests and documentation ---
+deploy
+docs
+scripts
+README.md
+**/*.md
+
+# --- IDE and editor metadata ---
+.idea
+.vscode
+**/*.iml
+**/*.ipr
+**/*.iws
+**/*.swp
+**/*~
+
+# --- Local environment, logs and OS cruft ---
+**/.env
+**/.env.*
+**/*.log
+**/logs
+**/*.pid
+**/.DS_Store
+**/Thumbs.db
+**/desktop.ini
+**/node_modules

@@ -6,8 +6,15 @@ COPY .mvn/ .mvn/
 COPY mvnw pom.xml ./
 COPY libs/ libs/
 COPY services/ services/
+# A clone made on Windows with core.autocrlf=true carries CRLF; strip the CRs so
+# the POSIX shebang in mvnw resolves and the wrapper can parse its properties.
+# .gitattributes prevents this at the source — this keeps older clones building.
+RUN sed -i 's/\r$//' mvnw .mvn/wrapper/maven-wrapper.properties && chmod +x mvnw
 # -pl <module> -am builds only this service plus the modules it depends on.
-RUN chmod +x mvnw && ./mvnw -B -ntp -pl services/fraud-detection-service -am -DskipTests clean package
+# The BuildKit cache mount is shared by all nine image builds, so the dependency
+# tree is fetched from Maven Central/Confluent once rather than nine times.
+RUN --mount=type=cache,target=/root/.m2/repository,sharing=locked \
+    ./mvnw -B -ntp -pl services/fraud-detection-service -am -DskipTests clean package
 
 # ---- Runtime stage: minimal JRE 21, non-root, OpenShift-friendly ----
 FROM eclipse-temurin:21-jre AS runtime

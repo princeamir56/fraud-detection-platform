@@ -1,20 +1,40 @@
 # =============================================================================
 # Fraud Detection Platform — full local stack (Section 18).
 #
-#   docker compose up -d --build
+#   docker compose up -d --build                      # lean stack (default)
+#   docker compose --profile consoles up -d --build   # + Kibana and Kafka UI
+#
+# Or, from anywhere in the repo, with preflight checks and a health wait:
+#   scripts/up.sh            /  scripts\up.ps1        # lean
+#   scripts/up.sh --full     /  scripts\up.ps1 -Full  # + consoles
 #
 # Compose auto-loads .env from this directory if present; otherwise the
 # ${VAR:-default} fallbacks below supply dev-only defaults, so the stack is
 # runnable straight from a clone. Copy .env.example to .env to customise.
 #
 # Brings up infra (MySQL 8.4, Cassandra 5.0, Kafka 4.0 KRaft + Schema Registry,
-# Elasticsearch 9 + Kibana, OpenTelemetry Collector + Jaeger, Kafka UI) and all
-# nine application services wired via the Spring `docker` profile (compose
-# hostnames). App services gate on infra health so first boot is deterministic.
+# Elasticsearch 9, OpenTelemetry Collector + Jaeger) and all nine application
+# services wired via the Spring `docker` profile (compose hostnames). App
+# services gate on infra health so first boot is deterministic.
+#
+# Kibana and Kafka UI sit behind the `consoles` profile: they add ~2 GB of RAM
+# and nothing depends on them, so the default stack stays inside a modest Docker
+# memory allocation. See README.md for the resource floor.
+#
+# PORTS: every *host-side* port is overridable via .env (e.g. MYSQL_PORT=13306)
+# for machines that already run MySQL, Tomcat, or Elasticsearch. Container-side
+# ports are FIXED — the `docker` Spring profile addresses peers by hostname
+# (mysql:3306, kafka:9092, schema-registry:8081, otel-collector:4318), so
+# changing the right-hand side of a mapping breaks service-to-service wiring.
 #
 # Image versions are pinned via .env (single source of truth) — re-verify with
 # scripts/check-versions.sh before a production build (see docs/technology-versions.md).
 # =============================================================================
+
+# Fixed project name so volume/network names are stable no matter which
+# directory the stack is launched from (otherwise Compose derives it from the
+# folder basename — "docker" — and collides with unrelated projects).
+name: fraud-detection-platform
 
 x-base-env: &base-env
   SPRING_PROFILES_ACTIVE: docker
@@ -38,7 +58,7 @@ services:
       MYSQL_APP_USER: ${MYSQL_APP_USER:-fraud}
       MYSQL_APP_PASSWORD: ${MYSQL_APP_PASSWORD:-fraud}
     ports:
-      - "3306:3306"
+      - "${MYSQL_PORT:-3306}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
       # Runs once on first init: creates the six fraud_* schemas + the shared app user.
@@ -57,10 +77,10 @@ services:
       CASSANDRA_CLUSTER_NAME: fraud-cluster
       CASSANDRA_DC: datacenter1
       CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
-      MAX_HEAP_SIZE: 512M
-      HEAP_NEWSIZE: 128M
+      MAX_HEAP_SIZE: ${CASSANDRA_HEAP:-512M}
+      HEAP_NEWSIZE: ${CASSANDRA_NEWSIZE:-128M}
     ports:
-      - "9042:9042"
+      - "${CASSANDRA_PORT:-9042}:9042"
     volumes:
       - cassandra-data:/var/lib/cassandra
     healthcheck:
@@ -88,14 +108,15 @@ services:
     image: confluentinc/cp-kafka:${CONFLUENT_VERSION:-8.0.0}
     <<: *restart
     ports:
-      - "9092:9092"     # in-network listener (advertised as kafka:9092)
-      - "29092:29092"   # host listener for local tooling (localhost:29092)
+      - "${KAFKA_INTERNAL_PORT:-9092}:9092"   # in-network listener (advertised as kafka:9092)
+      - "${KAFKA_HOST_PORT:-29092}:29092"     # host listener for local tooling
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:29092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      # The host listener must advertise the port the HOST sees, so it tracks KAFKA_HOST_PORT.
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:${KAFKA_HOST_PORT:-29092}
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
@@ -122,7 +143,7 @@ services:
       kafka:
         condition: service_healthy
     ports:
-      - "8090:8081"   # internal http://schema-registry:8081, host http://localhost:8090
+      - "${SCHEMA_REGISTRY_PORT:-8090}:8081"   # internal http://schema-registry:8081
     environment:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
@@ -135,8 +156,10 @@ services:
       retries: 20
       start_period: 20s
 
+  # Optional console (~500 MB): `docker compose --profile consoles up -d`.
   kafka-ui:
     image: provectuslabs/kafka-ui:${KAFKA_UI_VERSION:-v0.7.2}
+    profiles: [consoles]
     <<: *restart
     depends_on:
       kafka:
@@ -144,7 +167,7 @@ services:
       schema-registry:
         condition: service_healthy
     ports:
-      - "8100:8080"
+      - "${KAFKA_UI_PORT:-8100}:8080"
     environment:
       KAFKA_CLUSTERS_0_NAME: fraud
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
@@ -157,14 +180,18 @@ services:
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
-      ES_JAVA_OPTS: -Xms512m -Xmx512m
-      bootstrap.memory_lock: "true"
+      ES_JAVA_OPTS: -Xms${ES_HEAP:-512m} -Xmx${ES_HEAP:-512m}
+      # Locking the heap into RAM needs a memlock rlimit the host may refuse; when
+      # it is refused Elasticsearch exits at boot and takes fraud-detection, alert
+      # and audit down with it. Off by default for portability — set
+      # ES_MEMORY_LOCK=true on a host you know grants it.
+      bootstrap.memory_lock: "${ES_MEMORY_LOCK:-false}"
     ulimits:
       memlock:
         soft: -1
         hard: -1
     ports:
-      - "9200:9200"
+      - "${ES_PORT:-9200}:9200"
     volumes:
       - es-data:/usr/share/elasticsearch/data
     healthcheck:
@@ -174,14 +201,16 @@ services:
       retries: 30
       start_period: 40s
 
+  # Optional console (~1.5 GB): `docker compose --profile consoles up -d`.
   kibana:
     image: docker.elastic.co/kibana/kibana:${ELASTIC_VERSION:-9.0.4}
+    profiles: [consoles]
     <<: *restart
     depends_on:
       elasticsearch:
         condition: service_healthy
     ports:
-      - "5601:5601"
+      - "${KIBANA_PORT:-5601}:5601"
     environment:
       ELASTICSEARCH_HOSTS: http://elasticsearch:9200
 
@@ -191,7 +220,7 @@ services:
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
-      - "16686:16686"   # Jaeger UI
+      - "${JAEGER_UI_PORT:-16686}:16686"   # Jaeger UI
 
   otel-collector:
     image: otel/opentelemetry-collector:${OTELCOL_VERSION:-0.111.0}
@@ -202,8 +231,8 @@ services:
     volumes:
       - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
     ports:
-      - "4318:4318"   # OTLP HTTP (services export here as otel-collector:4318)
-      - "4317:4317"   # OTLP gRPC
+      - "${OTLP_HTTP_PORT:-4318}:4318"   # OTLP HTTP (services export here as otel-collector:4318)
+      - "${OTLP_GRPC_PORT:-4317}:4317"   # OTLP gRPC
 
   # ------------------------------------------------------------- app services --
   customer-service:
@@ -215,7 +244,7 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin-change-me}
     ports:
-      - "8081:8081"
+      - "${CUSTOMER_PORT:-8081}:8081"
     depends_on:
       mysql:
         condition: service_healthy
@@ -229,7 +258,7 @@ services:
     environment:
       <<: [*base-env, *db-env]
     ports:
-      - "8082:8082"
+      - "${ACCOUNT_PORT:-8082}:8082"
     depends_on:
       mysql:
         condition: service_healthy
@@ -243,7 +272,7 @@ services:
     environment:
       <<: [*base-env, *db-env]
     ports:
-      - "8083:8083"
+      - "${TRANSACTION_PORT:-8083}:8083"
     depends_on:
       mysql:
         condition: service_healthy
@@ -261,7 +290,7 @@ services:
     environment:
       <<: [*base-env, *db-env]
     ports:
-      - "8084:8084"
+      - "${FRAUD_PORT:-8084}:8084"
     depends_on:
       mysql:
         condition: service_healthy
@@ -285,8 +314,8 @@ services:
     environment:
       <<: *base-env
     ports:
-      - "8085:8085"   # REST/actuator
-      - "9095:9095"   # gRPC
+      - "${RISK_HTTP_PORT:-8085}:8085"   # REST/actuator
+      - "${RISK_GRPC_PORT:-9095}:9095"   # gRPC
     depends_on:
       otel-collector:
         condition: service_started
@@ -298,7 +327,7 @@ services:
     environment:
       <<: [*base-env, *db-env]
     ports:
-      - "8086:8086"
+      - "${ALERT_PORT:-8086}:8086"
     depends_on:
       mysql:
         condition: service_healthy
@@ -318,7 +347,7 @@ services:
     environment:
       <<: [*base-env, *db-env]
     ports:
-      - "8087:8087"
+      - "${NOTIFICATION_PORT:-8087}:8087"
     depends_on:
       mysql:
         condition: service_healthy
@@ -336,7 +365,7 @@ services:
     environment:
       <<: *base-env
     ports:
-      - "8088:8088"
+      - "${AUDIT_PORT:-8088}:8088"
     depends_on:
       kafka:
         condition: service_healthy
@@ -354,7 +383,7 @@ services:
     environment:
       <<: *base-env
     ports:
-      - "8080:8080"
+      - "${GATEWAY_PORT:-8080}:8080"
     depends_on:
       - customer-service
       - account-service

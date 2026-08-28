@@ -6,9 +6,10 @@ Ordered roughly by when you hit them: **build → infra → runtime → deploy**
 ```mermaid
 flowchart TD
   A[Problem] --> B{Build fails?}
-  B -->|yes| B1[JDK 21? Maven 3.9+? — enforcer]
+  B -->|docker build| B0[CRLF in mvnw? — .gitattributes / re-clone]
+  B -->|./mvnw| B1[JDK 21? Maven 3.9+? — enforcer]
   B -->|no| C{Infra unhealthy?}
-  C -->|yes| C1[ES vm.max_map_count · Docker RAM · ports]
+  C -->|yes| C1[Docker RAM ≥8 GB · free ports · ES vm.max_map_count]
   C -->|no| D{Service won't start?}
   D -->|yes| D1[JWT_SECRET ≥32B · schema-registry · DB reachable]
   D -->|no| E{Runtime wrong?}
@@ -18,6 +19,39 @@ flowchart TD
 ```
 
 ## Build
+
+### Docker image builds
+
+**`./mvnw: bad interpreter: No such file or directory`, `exec ./mvnw: no such file or
+directory`, or `Invalid distributionUrl` — every one of the nine builds fails at the
+same step.** The clone has **CRLF line endings**. Git for Windows defaults to
+`core.autocrlf=true`, which rewrites `mvnw` so its shebang becomes `#!/bin/sh\r` — a
+path the Linux build container cannot resolve — and appends a stray `\r` to the
+`distributionUrl` in `.mvn/wrapper/maven-wrapper.properties`.
+
+`.gitattributes` pins these files to LF, so a fresh clone is immune, and the Dockerfiles
+strip CRs defensively (`sed -i 's/\r$//' mvnw …`) so even a poisoned clone builds. If you
+cloned **before** that commit, renormalize:
+
+```bash
+git pull
+git rm --cached -r . && git reset --hard    # re-checkout everything under the new rules
+git config --global core.autocrlf input     # optional: stop it happening in other repos
+```
+
+Confirm with `git ls-files --eol mvnw` → `i/lf w/lf attr/text eol=lf`.
+
+**Every image re-downloads the whole dependency tree.** The build stages share one Maven
+repository through a BuildKit cache mount, so dependencies are fetched once for all nine
+images. That needs BuildKit — it is the default, but `DOCKER_BUILDKIT=0` in your
+environment disables it and restores the slow path. Unset it. (`scripts/up.sh` refuses to
+build when it is set.)
+
+**The build stalls or fails resolving `io.confluent:*`.** Those artifacts come from
+`packages.confluent.io`, not Maven Central. The build container needs to reach it — allow
+it through the proxy, or point `MAVEN_OPTS`/`settings.xml` at an internal mirror.
+
+### From-source builds (`./mvnw`)
 
 **`mvn`/enforcer fails immediately: "Java 21+ is required".**
 The reactor enforces **JDK 21** (`maven-enforcer-plugin`, `requireJavaVersion [21,)`)
@@ -40,6 +74,49 @@ hosted on the **Confluent** repository, not Maven Central — it's declared in t
 
 ## Infrastructure (Docker Compose)
 
+**A container dies with exit code 137.** That is the kernel OOM-killer: Docker was not
+given enough memory. The lean stack wants **8 GB**, and **12 GB** with the consoles
+(`--full`). Raise it in **Docker Desktop → Settings → Resources → Memory**. If you cannot,
+run without `--full` (Kibana + Kafka UI are ~2 GB) and trim the heaps in
+`deploy/docker/.env`:
+
+```properties
+ES_HEAP=384m
+CASSANDRA_HEAP=384M
+CASSANDRA_NEWSIZE=96M
+```
+
+`scripts/up.sh` warns before starting when the allocation looks too small, and names the
+offending container if one is killed.
+
+**`Bind for 0.0.0.0:3306 failed: port is already allocated`** (or 8080, 9200, 9042 …).
+Something on the host already owns that port — a local MySQL, Tomcat, or another
+Elasticsearch. Every **host-side** port is overridable from `deploy/docker/.env`; see
+`.env.example` for the full list:
+
+```properties
+MYSQL_PORT=13306
+GATEWAY_PORT=18080
+```
+
+`scripts/up.sh` scans all of them before starting and prints the exact variable to set for
+each conflict. Container-side ports stay fixed, so in-network wiring is unaffected.
+
+**`Unknown database 'fraud_customer'`, or Flyway fails on every DB-backed service.**
+`deploy/docker/mysql/init/01-init.sh` never created the six `fraud_*` schemas. Two causes:
+
+1. **CRLF** in that script — the MySQL entrypoint aborts it silently. Same fix as the
+   `bad interpreter` entry above.
+2. **A pre-existing volume.** MySQL only runs `/docker-entrypoint-initdb.d` on a *first*
+   initialisation, so a volume created by an earlier broken run stays empty forever.
+
+```bash
+docker compose -p fraud-detection-platform exec mysql mysql -uroot -proot -e 'SHOW DATABASES'
+```
+
+If the `fraud_*` schemas are missing, wipe and re-init: `scripts/down.sh --volumes` then
+`scripts/up.sh`.
+
 **Elasticsearch container exits / bootstrap check fails.** Set the host kernel param:
 
 ```bash
@@ -49,6 +126,16 @@ sudo sysctl -w vm.max_map_count=262144      # persist in /etc/sysctl.conf
 On Docker Desktop this applies to the VM; a restart of the ES container after setting
 it usually clears it. Also give Docker enough RAM (ES + Kafka + Cassandra + MySQL is
 memory-hungry — 8 GB+ recommended).
+
+**Elasticsearch exits complaining about `memory locking requested … but memory is not
+locked`.** Locking the heap into RAM needs a memlock rlimit the host may refuse. The
+default is `ES_MEMORY_LOCK=false` for exactly that reason — only set it `true` on a host
+you know grants it.
+
+**Kibana / Kafka UI aren't running.** By design: they sit behind the `consoles` compose
+profile. Start them with `scripts/up.sh --full`, or
+`docker compose --profile consoles up -d`. The profile must also be passed to `down`, or
+Compose leaves them behind — `scripts/down.sh` always does.
 
 **A service boots before its database/broker is ready.** Compose gates every service
 with health-checked `depends_on`, so start-up is ordered
@@ -63,17 +150,23 @@ does this.
 
 ## Port & endpoint quick-reference
 
-| Thing | Host port | Note |
-|-------|-----------|------|
+These are the **defaults**. Each is overridable from `deploy/docker/.env` (see
+`.env.example`) — the variable is the row's subject in upper snake case plus `_PORT`, e.g.
+`MYSQL_PORT`, `GATEWAY_PORT`, `ES_PORT`, `KIBANA_PORT`. Overrides change only what is
+published on the host.
+
+| Thing | Default host port | Note |
+|-------|-------------------|------|
 | api-gateway | 8080 | the only public entry |
 | services | 8081–8088 | see [`architecture.md`](architecture.md#service-catalog) |
 | risk-scoring gRPC | 9095 | internal only |
 | **Schema Registry** | **8090** | container listens on 8081 — **host maps 8090** |
-| Kafka UI | 8100 | inspect topics **and `.DLT`** |
-| Kibana | 5601 | dashboards |
+| Kafka UI | 8100 | inspect topics **and `.DLT`** — needs `--profile consoles` |
+| Kibana | 5601 | dashboards — needs `--profile consoles` |
 | Jaeger UI | 16686 | traces |
 | Elasticsearch | 9200 | |
 | OTel Collector | 4318 (HTTP) / 4317 (gRPC) | |
+| MySQL / Cassandra / Kafka | 3306 / 9042 / 29092 | Kafka's in-network listener is 9092 |
 
 > **Gotcha:** connecting a local tool to Schema Registry uses `localhost:8090`, but
 > *inside* the compose/k8s network services use `http://schema-registry:8081`. Don't
