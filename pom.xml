@@ -61,6 +61,12 @@
         <grpc.version>1.71.0</grpc.version>
         <confluent.version>8.0.0</confluent.version>
         <elasticsearch-java.version>9.0.4</elasticsearch-java.version>
+        <!-- Overrides Boot's managed HttpClient 5.6: elasticsearch-java 9.0.4 is built against 5.4.x, and
+             5.6's async client transparently gunzips responses, so the ES Rest5Client's own gunzip then
+             fails ("Not in GZIP format") on every successful index/search call. Keep aligned with the
+             httpclient5 version declared by elasticsearch-java. -->
+        <httpclient5.version>5.4.4</httpclient5.version>
+        <httpcore5.version>5.3.4</httpcore5.version>
         <resilience4j.version>2.3.0</resilience4j.version>
         <jjwt.version>0.12.5</jjwt.version>
         <springdoc.version>2.8.9</springdoc.version>

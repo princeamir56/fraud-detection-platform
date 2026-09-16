@@ -11,6 +11,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.elasticsearch.ElasticsearchContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -61,6 +62,12 @@ class AuditSearchServiceIT {
         if (restClient != null) {
             restClient.close();
         }
+    }
+
+    /** The container is shared by every test and method order is not guaranteed, so start each from an empty index. */
+    @BeforeEach
+    void clearIndex() throws Exception {
+        client.deleteByQuery(d -> d.index(AuditSearchService.INDEX_AUDIT_EVENTS).query(q -> q.matchAll(m -> m)).refresh(true));
     }
 
     @Test
