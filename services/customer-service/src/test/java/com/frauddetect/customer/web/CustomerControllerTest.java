@@ -2,6 +2,7 @@ package com.frauddetect.customer.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.frauddetect.common.error.GlobalExceptionHandler;
+import com.frauddetect.common.error.SecurityExceptionHandler;
 import com.frauddetect.common.error.ResourceNotFoundException;
 import com.frauddetect.common.security.JwtAuthenticationFilter;
 import com.frauddetect.common.security.JwtProperties;
@@ -36,7 +37,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** Web-slice test covering the customer profile RBAC matrix and not-found handling. */
 @WebMvcTest(CustomerController.class)
-@Import({SecurityConfig.class, GlobalExceptionHandler.class, CustomerControllerTest.TestSecurityBeans.class})
+@Import({SecurityConfig.class, GlobalExceptionHandler.class, SecurityExceptionHandler.class, CustomerControllerTest.TestSecurityBeans.class})
 class CustomerControllerTest {
 
     @Autowired MockMvc mockMvc;

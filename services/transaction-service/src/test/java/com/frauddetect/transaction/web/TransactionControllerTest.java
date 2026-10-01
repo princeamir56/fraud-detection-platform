@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.frauddetect.common.domain.TransactionStatus;
 import com.frauddetect.common.domain.TransactionType;
 import com.frauddetect.common.error.GlobalExceptionHandler;
+import com.frauddetect.common.error.SecurityExceptionHandler;
 import com.frauddetect.common.error.ResourceNotFoundException;
 import com.frauddetect.common.security.JwtAuthenticationFilter;
 import com.frauddetect.common.security.JwtProperties;
@@ -36,7 +37,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(TransactionController.class)
-@Import({SecurityConfig.class, GlobalExceptionHandler.class, TransactionControllerTest.TestSecurityBeans.class})
+@Import({SecurityConfig.class, GlobalExceptionHandler.class, SecurityExceptionHandler.class, TransactionControllerTest.TestSecurityBeans.class})
 class TransactionControllerTest {
 
     @Autowired MockMvc mockMvc;

@@ -34,6 +34,12 @@ public class CorrelationIdWebFilter implements WebFilter, Ordered {
                 .header(Headers.CORRELATION_ID, correlationId)
                 .build();
         exchange.getResponse().getHeaders().set(Headers.CORRELATION_ID, correlationId);
+        // Downstream services echo the header too and the proxy merges it in; re-set just before commit
+        // so the client receives exactly one value instead of "id, id".
+        exchange.getResponse().beforeCommit(() -> {
+            exchange.getResponse().getHeaders().set(Headers.CORRELATION_ID, correlationId);
+            return Mono.empty();
+        });
 
         return chain.filter(exchange.mutate().request(request).build());
     }

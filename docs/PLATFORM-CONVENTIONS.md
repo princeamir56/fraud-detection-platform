@@ -64,7 +64,7 @@ audit-service consumes ALL events → index audit-events (ES)
 - All infra endpoints/secrets via env vars with localhost fallbacks: `MYSQL_URL`, `MYSQL_USER`, `MYSQL_PASSWORD`, `KAFKA_BOOTSTRAP_SERVERS`, `SCHEMA_REGISTRY_URL`, `CASSANDRA_CONTACT_POINTS`, `ELASTICSEARCH_URIS`, `RISK_GRPC_HOST/PORT`, `JWT_SECRET`.
 
 ## Observability
-- `spring-boot-starter-actuator`, `micrometer-registry-prometheus` (scrape `/actuator/prometheus`), `micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp` (`MANAGEMENT_OTLP_TRACING_ENDPOINT`).
+- `spring-boot-starter-actuator`, `micrometer-registry-prometheus` (scrape `/actuator/prometheus`), `spring-boot-starter-opentelemetry` + `opentelemetry-exporter-otlp` (`MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT`).
 - Structured JSON logging with `%X{correlationId}`, `traceId`, `spanId` in MDC (logback pattern in each service).
 
 ## Persistence conventions

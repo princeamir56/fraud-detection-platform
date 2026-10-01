@@ -7,6 +7,7 @@ import com.frauddetect.account.dto.AccountResponse;
 import com.frauddetect.account.dto.CreateAccountRequest;
 import com.frauddetect.account.service.AccountService;
 import com.frauddetect.common.error.GlobalExceptionHandler;
+import com.frauddetect.common.error.SecurityExceptionHandler;
 import com.frauddetect.common.error.ResourceNotFoundException;
 import com.frauddetect.common.security.JwtAuthenticationFilter;
 import com.frauddetect.common.security.JwtProperties;
@@ -35,7 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(AccountController.class)
-@Import({SecurityConfig.class, GlobalExceptionHandler.class, AccountControllerTest.TestSecurityBeans.class})
+@Import({SecurityConfig.class, GlobalExceptionHandler.class, SecurityExceptionHandler.class, AccountControllerTest.TestSecurityBeans.class})
 class AccountControllerTest {
 
     @Autowired MockMvc mockMvc;

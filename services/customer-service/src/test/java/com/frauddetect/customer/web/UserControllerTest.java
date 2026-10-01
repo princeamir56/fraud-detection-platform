@@ -2,6 +2,7 @@ package com.frauddetect.customer.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.frauddetect.common.error.GlobalExceptionHandler;
+import com.frauddetect.common.error.SecurityExceptionHandler;
 import com.frauddetect.common.security.JwtAuthenticationFilter;
 import com.frauddetect.common.security.JwtProperties;
 import com.frauddetect.common.security.JwtService;
@@ -32,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** Web-slice test for administrative user creation — only ADMIN may reach it. */
 @WebMvcTest(UserController.class)
-@Import({SecurityConfig.class, GlobalExceptionHandler.class, UserControllerTest.TestSecurityBeans.class})
+@Import({SecurityConfig.class, GlobalExceptionHandler.class, SecurityExceptionHandler.class, UserControllerTest.TestSecurityBeans.class})
 class UserControllerTest {
 
     @Autowired MockMvc mockMvc;

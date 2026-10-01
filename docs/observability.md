@@ -57,12 +57,12 @@ flowchart LR
   J --> UI[Jaeger UI :16686]
 ```
 
-- Export endpoint: env `MANAGEMENT_OTLP_TRACING_ENDPOINT`, default
+- Export endpoint: env `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT`, default
   `http://localhost:4318/v1/traces`, docker/k8s → `http://otel-collector:4318/v1/traces`.
 - Collector config [`deploy/docker/otel-collector-config.yaml`](../deploy/docker/otel-collector-config.yaml): OTLP receivers on HTTP `:4318` / gRPC `:4317`, `memory_limiter` + `batch` processors, Jaeger exporter to `jaeger:4317`.
 
 > **Known quirk:** customer-service reads `OTEL_EXPORTER_OTLP_ENDPOINT` instead of
-> `MANAGEMENT_OTLP_TRACING_ENDPOINT`. Both defaults point at the collector, so tracing
+> `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT`. Both defaults point at the collector, so tracing
 > works; just set both env vars if you relocate the collector. Noted in
 > [`troubleshooting.md`](troubleshooting.md).
 

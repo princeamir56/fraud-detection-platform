@@ -1,6 +1,7 @@
 package com.frauddetect.notification.web;
 
 import com.frauddetect.common.error.GlobalExceptionHandler;
+import com.frauddetect.common.error.SecurityExceptionHandler;
 import com.frauddetect.common.security.JwtAuthenticationFilter;
 import com.frauddetect.common.security.JwtProperties;
 import com.frauddetect.common.security.JwtService;
@@ -30,7 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** Web-slice test covering the notification read API RBAC matrix. */
 @WebMvcTest(NotificationController.class)
-@Import({SecurityConfig.class, GlobalExceptionHandler.class, NotificationControllerTest.TestSecurityBeans.class})
+@Import({SecurityConfig.class, GlobalExceptionHandler.class, SecurityExceptionHandler.class, NotificationControllerTest.TestSecurityBeans.class})
 class NotificationControllerTest {
 
     @Autowired MockMvc mockMvc;

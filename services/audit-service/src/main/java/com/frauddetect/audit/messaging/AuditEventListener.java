@@ -4,6 +4,7 @@ import com.frauddetect.audit.search.AuditEventDocument;
 import com.frauddetect.audit.search.AuditSearchService;
 import com.frauddetect.common.constants.KafkaTopics;
 import com.frauddetect.common.correlation.CorrelationContext;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -44,8 +45,10 @@ public class AuditEventListener {
                     KafkaTopics.ALERT_RESOLVED
             },
             containerFactory = "kafkaListenerContainerFactory")
-    public void onEvent(Object event) {
-        AuditEventDocument doc = AuditEventMapper.toDocument(event, Instant.now());
+    public void onEvent(ConsumerRecord<String, Object> record) {
+        // Take the record explicitly: an untyped Object parameter is bound to the whole ConsumerRecord,
+        // not the Avro payload, which the mapper would reject as an unsupported event type.
+        AuditEventDocument doc = AuditEventMapper.toDocument(record.value(), Instant.now());
         CorrelationContext.setCorrelationId(doc.correlationId());
         try {
             log.debug("Auditing {} eventId={}", doc.eventType(), doc.eventId());

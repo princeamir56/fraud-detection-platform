@@ -209,7 +209,7 @@ fraud-detection-service can reach it on `:9095`. See
 [`grpc.md`](grpc.md#resilience).
 
 **No traces in Jaeger.** Traces flow service → OTel Collector (`:4318`) → Jaeger.
-Verify the collector is up and `MANAGEMENT_OTLP_TRACING_ENDPOINT` points at it.
+Verify the collector is up and `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT` points at it.
 **Known quirk:** `customer-service` reads **`OTEL_EXPORTER_OTLP_ENDPOINT`** instead —
 if only that service is missing traces, set that variable. See
 [`observability.md`](observability.md#tracing).

@@ -2,6 +2,7 @@ package com.frauddetect.customer.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.frauddetect.common.error.GlobalExceptionHandler;
+import com.frauddetect.common.error.SecurityExceptionHandler;
 import com.frauddetect.common.security.JwtAuthenticationFilter;
 import com.frauddetect.common.security.JwtProperties;
 import com.frauddetect.common.security.JwtService;
@@ -35,7 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * surfaces as 401 via {@link AuthExceptionHandler} (not the 500 catch-all).
  */
 @WebMvcTest(AuthController.class)
-@Import({SecurityConfig.class, GlobalExceptionHandler.class, AuthExceptionHandler.class,
+@Import({SecurityConfig.class, GlobalExceptionHandler.class, SecurityExceptionHandler.class, AuthExceptionHandler.class,
         AuthControllerTest.TestSecurityBeans.class})
 class AuthControllerTest {
 

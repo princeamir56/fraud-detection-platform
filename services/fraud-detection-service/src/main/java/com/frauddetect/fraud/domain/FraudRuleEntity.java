@@ -7,9 +7,10 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
@@ -66,7 +67,8 @@ public class FraudRuleEntity {
     private Integer thresholdInt;
 
     /** Free-form JSON for rules needing richer parameters (e.g. country lists). */
-    @Lob
+    // LONGVARCHAR matches the LONGTEXT column; @Lob maps to CLOB, which fails schema validation on MySQL.
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "params_json")
     private String paramsJson;
 
